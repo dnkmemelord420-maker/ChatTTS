@@ -40,7 +40,7 @@
   const db = getDatabase(app);
   const chatRef = ref(db, "messages");
 
-  const CHAT_PASSPHRASE = "CHANGE_THIS_TO_A_SECRET";
+  const CHAT_PASSPHRASE = "tufiu4389r2h82h93hr2hdq";
 
   function arrayBufferToBase64(buffer) {
     return btoa(String.fromCharCode(...new Uint8Array(buffer)));
@@ -93,12 +93,17 @@
     const { iv, ct, timestamp } = snapshot.val();
     if (Date.now() - timestamp < 60000) {
       try {
-        const text = await decrypt(iv, ct);
+        const fullText = await decrypt(iv, ct);
+        const splitIndex = fullText.indexOf(": ");
+        const displayText = fullText;
+        const spokenText = splitIndex !== -1 ? fullText.slice(splitIndex + 2) : fullText;
+
         const p = document.createElement("p");
-        p.textContent = text;
+        p.textContent = displayText;
         document.getElementById("chat").appendChild(p);
         document.getElementById("chat").scrollTop = document.getElementById("chat").scrollHeight;
-        speak(text);
+
+        speak(spokenText);
       } catch (err) {
         console.warn("Decryption failed:", err);
       }
