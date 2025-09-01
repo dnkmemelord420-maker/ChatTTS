@@ -5,7 +5,7 @@
   <title>TTS Encrypted Chat</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body class="dark">
+<body>
   <div class="container">
     <h1>TTS Encrypted Chat</h1>
 
@@ -23,6 +23,7 @@
           Voice
           <select id="voiceSelect"></select>
         </label>
+        <button id="darkToggle">Dark Mode</button>
       </div>
       <div id="chat"></div>
       <form id="chatForm">
@@ -34,17 +35,8 @@
   </div>
 
   <script type="module">
-    import {
-      initializeApp
-    } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
-    import {
-      getDatabase,
-      ref,
-      push,
-      onChildAdded,
-      off,
-      goOffline
-    } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+    import { getDatabase, ref, push, onChildAdded } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyANG_bgIZ0sdpenEZdLU6zqAUvLpk2RH8s",
@@ -55,25 +47,24 @@
       messagingSenderId: "848479057506",
       appId: "1:848479057506:web:a2dd895d7a7991387d433b"
     };
-
     const LOGIN_PASSWORD_HASH = "b9ff6bf20e4c06505ffc06e1f4059838936938cc83f0d2d02adcdae945d8f984";
-    const CHAT_PASSPHRASE = "b9ff6bf20e4c06505ffc06e1f40598389369d8cc8350d2d02adcdae945d8f984";
-    const SALT = "static-salt-123";
+    const CHAT_PASSPHRASE     = "b9ff6bf20e4c06505ffc06e1f40598389369d8cc8350d2d02adcdae945d8f984";
+    const SALT                = "static-salt-123";
 
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
+    const app     = initializeApp(firebaseConfig);
+    const db      = getDatabase(app);
     const chatRef = ref(db, "messages");
-
-    let voices = [];
-    let chatInitialized = false;
+    let voices    = [];
 
     async function hashSHA256(str) {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
-      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+      return Array.from(new Uint8Array(buf))
+        .map(b => b.toString(16).padStart(2, "0"))
+        .join("");
     }
 
     document.getElementById("loginBtn").onclick = async () => {
-      const pw = document.getElementById("loginPwd").value;
+      const pw   = document.getElementById("loginPwd").value;
       const hash = await hashSHA256(pw);
       if (hash === LOGIN_PASSWORD_HASH) {
         document.getElementById("login").classList.add("hidden");
@@ -85,109 +76,91 @@
     };
 
     function initChat() {
-      if (chatInitialized) return;
-      chatInitialized = true;
-
       loadVoices();
-      if (speechSynthesis.onvoiceschanged !== null) {
-        speechSynthesis.onvoiceschanged = loadVoices;
-      }
-
+      loadDarkMode();
+      speechSynthesis.onvoiceschanged = loadVoices;
       onChildAdded(chatRef, handleInbound);
       document.getElementById("chatForm").addEventListener("submit", handleSend);
+      document.getElementById("darkToggle").onclick = toggleDarkMode;
     }
 
     function loadVoices() {
       voices = speechSynthesis.getVoices();
       const sel = document.getElementById("voiceSelect");
-      sel.innerHTML = voices.map((v, i) => `<option value="${i}">${v.name} (${v.lang})</option>`).join("");
+      sel.innerHTML = voices
+        .map((v,i) => `<option value="${i}">${v.name} (${v.lang})</option>`)
+        .join("");
+    }
+
+    function loadDarkMode() {
+      const dark = localStorage.getItem("darkMode") === "true";
+      document.body.classList.toggle("dark", dark);
+    }
+
+    function toggleDarkMode() {
+      const isDark = document.body.classList.toggle("dark");
+      localStorage.setItem("darkMode", isDark);
     }
 
     function arrayBufferToBase64(buffer) {
       return btoa(String.fromCharCode(...new Uint8Array(buffer)));
     }
-
     function base64ToArrayBuffer(base64) {
-      const bin = atob(base64);
-      const arr = new Uint8Array(bin.length);
+      const bin = atob(base64), arr = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
       return arr.buffer;
     }
-
     async function deriveKey() {
-      const enc = new TextEncoder();
-      const baseKey = await crypto.subtle.importKey("raw", enc.encode(CHAT_PASSPHRASE), "PBKDF2", false, ["deriveKey"]);
-      return crypto.subtle.deriveKey({
-          name: "PBKDF2",
-          salt: enc.encode(SALT),
-          iterations: 100000,
-          hash: "SHA-256"
-        },
-        baseKey, {
-          name: "AES-GCM",
-          length: 256
-        },
-        false, ["encrypt", "decrypt"]
+      const enc     = new TextEncoder();
+      const baseKey = await crypto.subtle.importKey(
+        "raw", enc.encode(CHAT_PASSPHRASE), "PBKDF2", false, ["deriveKey"]
+      );
+      return crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt: enc.encode(SALT), iterations: 100000, hash: "SHA-256" },
+        baseKey,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt","decrypt"]
       );
     }
-
     async function encrypt(text) {
       const key = await deriveKey();
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const ct = await crypto.subtle.encrypt({
-        name: "AES-GCM",
-        iv
-      }, key, new TextEncoder().encode(text));
-      return {
-        iv: arrayBufferToBase64(iv),
-        ct: arrayBufferToBase64(ct)
-      };
+      const iv  = crypto.getRandomValues(new Uint8Array(12));
+      const ct  = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv }, key, new TextEncoder().encode(text)
+      );
+      return { iv: arrayBufferToBase64(iv), ct: arrayBufferToBase64(ct) };
     }
-
     async function decrypt(ivB64, ctB64) {
       const key = await deriveKey();
-      const iv = base64ToArrayBuffer(ivB64);
-      const ct = base64ToArrayBuffer(ctB64);
-      const plain = await crypto.subtle.decrypt({
-        name: "AES-GCM",
-        iv
-      }, key, ct);
+      const iv  = base64ToArrayBuffer(ivB64);
+      const ct  = base64ToArrayBuffer(ctB64);
+      const plain = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv }, key, ct
+      );
       return new TextDecoder().decode(plain);
     }
 
     async function handleSend(e) {
       e.preventDefault();
-      const user = document.getElementById("username").value.trim();
-      const msg = document.getElementById("message").value.trim();
+      const user       = document.getElementById("username").value.trim();
+      const msg        = document.getElementById("message").value.trim();
       const voiceIndex = document.getElementById("voiceSelect").value;
       if (!user || !msg) return;
       const fullText = `${user}: ${msg}`;
-      const {
-        iv,
-        ct
-      } = await encrypt(fullText);
-      await push(chatRef, {
-        iv,
-        ct,
-        voiceIndex,
-        timestamp: Date.now()
-      });
+      const { iv, ct } = await encrypt(fullText);
+      await push(chatRef, { iv, ct, voiceIndex, timestamp: Date.now() });
       document.getElementById("message").value = "";
     }
 
     async function handleInbound(snap) {
-      const {
-        iv,
-        ct,
-        voiceIndex,
-        timestamp
-      } = snap.val();
+      const { iv, ct, voiceIndex, timestamp } = snap.val();
       if (Date.now() - timestamp > 60000) return;
       try {
         const fullText = await decrypt(iv, ct);
-        const splitAt = fullText.indexOf(": ");
-        const display = fullText;
-        const spoken = splitAt > -1 ? fullText.slice(splitAt + 2) : fullText;
+        const splitAt  = fullText.indexOf(": ");
+        const display  = fullText;
+        const spoken   = splitAt > -1 ? fullText.slice(splitAt + 2) : fullText;
 
         const p = document.createElement("p");
         p.classList.add("message");
@@ -202,12 +175,8 @@
         console.warn("Decrypt failed:", err);
       }
     }
-
-    // Disconnect Firebase when user leaves
-    window.addEventListener("beforeunload", () => {
-      off(chatRef);
-      goOffline(db);
-    });
   </script>
 </body>
 </html>
+
+
