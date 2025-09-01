@@ -36,6 +36,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
     import { getDatabase, ref, push, onChildAdded } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
+    import { compressToUTF16, decompressFromUTF16 } from "https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyANG_bgIZ0sdpenEZdLU6zqAUvLpk2RH8s",
@@ -46,8 +47,9 @@
       messagingSenderId: "848479057506",
       appId: "1:848479057506:web:a2dd895d7a7991387d433b"
     };
+
     const LOGIN_PASSWORD_HASH = "b9ff6bf20e4c06505ffc06e1f4059838936938cc83f0d2d02adcdae945d8f984";
-    const CHAT_PASSPHRASE     = "b9ff6bf20e4c06505ffc06e1f40598389369d8cc8350d2d02adcdae945d8f984";
+    const CHAT_PASSPHRASE     = "dae945d8f984";
     const SALT                = "static-salt-123";
 
     const app     = initializeApp(firebaseConfig);
@@ -57,9 +59,7 @@
 
     async function hashSHA256(str) {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
-      return Array.from(new Uint8Array(buf))
-        .map(b => b.toString(16).padStart(2, "0"))
-        .join("");
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
     }
 
     document.getElementById("loginBtn").onclick = async () => {
@@ -76,44 +76,40 @@
 
     function initChat() {
       loadVoices();
-      loadDarkMode();
       speechSynthesis.onvoiceschanged = loadVoices;
       onChildAdded(chatRef, handleInbound);
       document.getElementById("chatForm").addEventListener("submit", handleSend);
-      document.getElementById("darkToggle").onclick = toggleDarkMode;
     }
 
     function loadVoices() {
-      voices = speechSynthesis.getVoices();
       const sel = document.getElementById("voiceSelect");
-      sel.innerHTML = voices
-        .map((v,i) => `<option value="${i}">${v.name} (${v.lang})</option>`)
-        .join("");
-    }
 
-    function loadDarkMode() {
-      const dark = localStorage.getItem("darkMode") === "true";
-      document.body.classList.toggle("dark", dark);
-    }
+      function populate() {
+        voices = speechSynthesis.getVoices();
+        if (voices.length === 0) {
+          setTimeout(populate, 100);
+          return;
+        }
+        sel.innerHTML = voices.map((v, i) => `<option value="${i}">${v.name} (${v.lang})</option>`).join("");
+      }
 
-    function toggleDarkMode() {
-      const isDark = document.body.classList.toggle("dark");
-      localStorage.setItem("darkMode", isDark);
+      populate();
     }
 
     function arrayBufferToBase64(buffer) {
       return btoa(String.fromCharCode(...new Uint8Array(buffer)));
     }
+
     function base64ToArrayBuffer(base64) {
-      const bin = atob(base64), arr = new Uint8Array(bin.length);
+      const bin = atob(base64);
+      const arr = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
       return arr.buffer;
     }
+
     async function deriveKey() {
       const enc     = new TextEncoder();
-      const baseKey = await crypto.subtle.importKey(
-        "raw", enc.encode(CHAT_PASSPHRASE), "PBKDF2", false, ["deriveKey"]
-      );
+      const baseKey = await crypto.subtle.importKey("raw", enc.encode(CHAT_PASSPHRASE), "PBKDF2", false, ["deriveKey"]);
       return crypto.subtle.deriveKey(
         { name: "PBKDF2", salt: enc.encode(SALT), iterations: 100000, hash: "SHA-256" },
         baseKey,
@@ -122,6 +118,7 @@
         ["encrypt","decrypt"]
       );
     }
+
     async function encrypt(text) {
       const key = await deriveKey();
       const iv  = crypto.getRandomValues(new Uint8Array(12));
@@ -130,13 +127,12 @@
       );
       return { iv: arrayBufferToBase64(iv), ct: arrayBufferToBase64(ct) };
     }
+
     async function decrypt(ivB64, ctB64) {
       const key = await deriveKey();
       const iv  = base64ToArrayBuffer(ivB64);
       const ct  = base64ToArrayBuffer(ctB64);
-      const plain = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv }, key, ct
-      );
+      const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
       return new TextDecoder().decode(plain);
     }
 
@@ -146,20 +142,29 @@
       const msg        = document.getElementById("message").value.trim();
       const voiceIndex = document.getElementById("voiceSelect").value;
       if (!user || !msg) return;
-      const fullText = `${user}: ${msg}`;
-      const { iv, ct } = await encrypt(fullText);
-      await push(chatRef, { iv, ct, voiceIndex, timestamp: Date.now() });
+
+      const compressed = compressToUTF16(msg);
+      const { iv, ct } = await encrypt(compressed);
+
+      await push(chatRef, {
+        user,
+        iv,
+        ct,
+        voiceIndex,
+        timestamp: Date.now()
+      });
+
       document.getElementById("message").value = "";
     }
 
     async function handleInbound(snap) {
-      const { iv, ct, voiceIndex, timestamp } = snap.val();
+      const { user, iv, ct, voiceIndex, timestamp } = snap.val();
       if (Date.now() - timestamp > 60000) return;
+
       try {
-        const fullText = await decrypt(iv, ct);
-        const splitAt  = fullText.indexOf(": ");
-        const display  = fullText;
-        const spoken   = splitAt > -1 ? fullText.slice(splitAt + 2) : fullText;
+        const decrypted = await decrypt(iv, ct);
+        const msg = decompressFromUTF16(decrypted);
+        const display = `${user}: ${msg}`;
 
         const p = document.createElement("p");
         p.classList.add("message");
@@ -167,7 +172,7 @@
         document.getElementById("chat").appendChild(p);
         document.getElementById("chat").scrollTop = document.getElementById("chat").scrollHeight;
 
-        const utter = new SpeechSynthesisUtterance(spoken);
+        const utter = new SpeechSynthesisUtterance(msg);
         utter.voice = voices[voiceIndex] || null;
         speechSynthesis.speak(utter);
       } catch (err) {
@@ -177,6 +182,3 @@
   </script>
 </body>
 </html>
-
-
-
