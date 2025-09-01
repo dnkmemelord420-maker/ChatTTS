@@ -2,85 +2,42 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Secure Encrypted Voice Chat Room</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      max-width: 600px;
-      margin: auto;
-      padding: 20px;
-      transition: background 0.3s, color 0.3s;
-    }
-    body.dark {
-      background: #222;
-      color: #eee;
-    }
-    #login, #chat-ui {
-      margin-top: 20px;
-    }
-    #chat {
-      border: 1px solid #ccc;
-      height: 300px;
-      overflow-y: scroll;
-      padding: 10px;
-      margin-bottom: 10px;
-      background: #fafafa;
-    }
-    body.dark #chat {
-      background: #333;
-    }
-    #chat p {
-      margin: 5px 0;
-    }
-    form {
-      display: flex;
-      gap: 5px;
-      flex-wrap: wrap;
-    }
-    input, select, button {
-      padding: 5px;
-      font-size: 1rem;
-    }
-    #controls {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 10px;
-      align-items: center;
-    }
-  </style>
+  <title>TTS Encrypted Chat</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <h1>Secure Encrypted Voice Chat Room</h1>
+  <div class="container">
+    <h1>TTS Encrypted Chat</h1>
 
-  <!-- LOGIN GATE -->
-  <div id="login">
-    <input id="loginPwd" type="password" placeholder="Enter chat password" />
-    <button id="loginBtn">Enter</button>
-    <p id="loginMsg" style="color: red;"></p>
-  </div>
-
-  <!-- CHAT UI (hidden until login) -->
-  <div id="chat-ui" style="display: none;">
-    <div id="controls">
-      <label>
-        Voice:
-        <select id="voiceSelect"></select>
-      </label>
-      <button id="darkToggle">Toggle Dark Mode</button>
+    <!-- LOGIN -->
+    <div id="login">
+      <input id="loginPwd" type="password" placeholder="Enter chat password" />
+      <button id="loginBtn">Enter</button>
+      <p id="loginMsg" class="error"></p>
     </div>
-    <div id="chat"></div>
-    <form id="chatForm">
-      <input id="username" type="text" placeholder="Your name" required maxlength="30" />
-      <input id="message" type="text" placeholder="Type a message…" required maxlength="200" />
-      <button type="submit">Send</button>
-    </form>
+
+    <!-- CHAT UI -->
+    <div id="chat-ui" class="hidden">
+      <div id="controls">
+        <label>
+          Voice
+          <select id="voiceSelect"></select>
+        </label>
+        <button id="darkToggle">Dark Mode</button>
+      </div>
+      <div id="chat"></div>
+      <form id="chatForm">
+        <input id="username" type="text" placeholder="Your name" required maxlength="30" />
+        <input id="message" type="text" placeholder="Type a message…" required maxlength="200" />
+        <button type="submit">Send</button>
+      </form>
+    </div>
   </div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
     import { getDatabase, ref, push, onChildAdded } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
 
-    // === CONFIG ===
     const firebaseConfig = {
       apiKey: "AIzaSyANG_bgIZ0sdpenEZdLU6zqAUvLpk2RH8s",
       authDomain: "chattts-574ab.firebaseapp.com",
@@ -91,15 +48,14 @@
       appId: "1:848479057506:web:a2dd895d7a7991387d433b"
     };
     const LOGIN_PASSWORD_HASH = "b9ff6bf20e4c06505ffc06e1f4059838936938cc83f0d2d02adcdae945d8f984";
-    const CHAT_PASSPHRASE       = "CHANGE_THIS_TO_A_SECRET"; 
-    const SALT                  = "static-salt-123";
+    const CHAT_PASSPHRASE     = "b9ff6bf20e4c06505ffc06e1f40598389369d8cc8350d2d02adcdae945d8f984";
+    const SALT                = "static-salt-123";
 
-    // === INITIALIZE FIREBASE ===
-    const app = initializeApp(firebaseConfig);
-    const db  = getDatabase(app);
+    const app     = initializeApp(firebaseConfig);
+    const db      = getDatabase(app);
     const chatRef = ref(db, "messages");
+    let voices    = [];
 
-    // === UTILITY: SHA-256 HASH (hex) ===
     async function hashSHA256(str) {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
       return Array.from(new Uint8Array(buf))
@@ -107,61 +63,58 @@
         .join("");
     }
 
-    // === LOGIN FLOW ===
     document.getElementById("loginBtn").onclick = async () => {
       const pw   = document.getElementById("loginPwd").value;
       const hash = await hashSHA256(pw);
       if (hash === LOGIN_PASSWORD_HASH) {
-        document.getElementById("login").style.display   = "none";
-        document.getElementById("chat-ui").style.display = "block";
+        document.getElementById("login").classList.add("hidden");
+        document.getElementById("chat-ui").classList.remove("hidden");
         initChat();
       } else {
         document.getElementById("loginMsg").textContent = "Wrong password.";
       }
     };
 
-    // === CHAT + FEATURES SETUP ===
-    async function initChat() {
-      setupVoices();
+    function initChat() {
+      loadVoices();
       loadDarkMode();
+      speechSynthesis.onvoiceschanged = loadVoices;
       onChildAdded(chatRef, handleInbound);
       document.getElementById("chatForm").addEventListener("submit", handleSend);
+      document.getElementById("darkToggle").onclick = toggleDarkMode;
     }
 
-    // === VOICE SELECTION ===
-    let voices = [];
-    function setupVoices() {
+    function loadVoices() {
       voices = speechSynthesis.getVoices();
       const sel = document.getElementById("voiceSelect");
       sel.innerHTML = voices
-        .map((v, i) => `<option value="${i}">${v.name} (${v.lang})</option>`)
+        .map((v,i) => `<option value="${i}">${v.name} (${v.lang})</option>`)
         .join("");
-      speechSynthesis.onvoiceschanged = () => setupVoices();
     }
 
-    // === DARK MODE ===
     function loadDarkMode() {
       const dark = localStorage.getItem("darkMode") === "true";
       document.body.classList.toggle("dark", dark);
     }
-    document.getElementById("darkToggle").onclick = () => {
+
+    function toggleDarkMode() {
       const isDark = document.body.classList.toggle("dark");
       localStorage.setItem("darkMode", isDark);
-    };
+    }
 
-    // === ENCRYPT / DECRYPT ===
     function arrayBufferToBase64(buffer) {
       return btoa(String.fromCharCode(...new Uint8Array(buffer)));
     }
     function base64ToArrayBuffer(base64) {
-      const bin = atob(base64);
-      const arr = new Uint8Array(bin.length);
+      const bin = atob(base64), arr = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
       return arr.buffer;
     }
     async function deriveKey() {
-      const enc = new TextEncoder();
-      const baseKey = await crypto.subtle.importKey("raw", enc.encode(CHAT_PASSPHRASE), "PBKDF2", false, ["deriveKey"]);
+      const enc     = new TextEncoder();
+      const baseKey = await crypto.subtle.importKey(
+        "raw", enc.encode(CHAT_PASSPHRASE), "PBKDF2", false, ["deriveKey"]
+      );
       return crypto.subtle.deriveKey(
         { name: "PBKDF2", salt: enc.encode(SALT), iterations: 100000, hash: "SHA-256" },
         baseKey,
@@ -173,47 +126,50 @@
     async function encrypt(text) {
       const key = await deriveKey();
       const iv  = crypto.getRandomValues(new Uint8Array(12));
-      const ct  = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(text));
+      const ct  = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv }, key, new TextEncoder().encode(text)
+      );
       return { iv: arrayBufferToBase64(iv), ct: arrayBufferToBase64(ct) };
     }
     async function decrypt(ivB64, ctB64) {
       const key = await deriveKey();
       const iv  = base64ToArrayBuffer(ivB64);
       const ct  = base64ToArrayBuffer(ctB64);
-      const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+      const plain = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv }, key, ct
+      );
       return new TextDecoder().decode(plain);
     }
 
-    // === HANDLE OUTBOUND ===
     async function handleSend(e) {
       e.preventDefault();
-      const user = document.getElementById("username").value.trim();
-      const msg  = document.getElementById("message").value.trim();
+      const user       = document.getElementById("username").value.trim();
+      const msg        = document.getElementById("message").value.trim();
+      const voiceIndex = document.getElementById("voiceSelect").value;
       if (!user || !msg) return;
       const fullText = `${user}: ${msg}`;
       const { iv, ct } = await encrypt(fullText);
-      await push(chatRef, { iv, ct, timestamp: Date.now() });
+      await push(chatRef, { iv, ct, voiceIndex, timestamp: Date.now() });
       document.getElementById("message").value = "";
     }
 
-    // === HANDLE INBOUND ===
     async function handleInbound(snap) {
-      const { iv, ct, timestamp } = snap.val();
-      if (Date.now() - timestamp > 60000) return;  // ignore old
+      const { iv, ct, voiceIndex, timestamp } = snap.val();
+      if (Date.now() - timestamp > 60000) return;
       try {
         const fullText = await decrypt(iv, ct);
-        const idx = fullText.indexOf(": ");
-        const display = fullText;
-        const spoken  = idx > -1 ? fullText.slice(idx + 2) : fullText;
+        const splitAt  = fullText.indexOf(": ");
+        const display  = fullText;
+        const spoken   = splitAt > -1 ? fullText.slice(splitAt + 2) : fullText;
 
         const p = document.createElement("p");
+        p.classList.add("message");
         p.textContent = display;
         document.getElementById("chat").appendChild(p);
         document.getElementById("chat").scrollTop = document.getElementById("chat").scrollHeight;
 
         const utter = new SpeechSynthesisUtterance(spoken);
-        const sel   = document.getElementById("voiceSelect");
-        utter.voice = voices[sel.value] || null;
+        utter.voice = voices[voiceIndex] || null;
         speechSynthesis.speak(utter);
       } catch (err) {
         console.warn("Decrypt failed:", err);
@@ -222,3 +178,5 @@
   </script>
 </body>
 </html>
+
+
