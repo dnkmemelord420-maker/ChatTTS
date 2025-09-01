@@ -7,10 +7,7 @@
 </head>
 <body class="dark">
   <div class="container">
-    <div class="top-bar">
-      <h1>TTS Encrypted Chat</h1>
-      <!--<button id="darkToggle" title="Toggle Theme">🌙</button>-->
-    </div>
+    <h1>TTS Encrypted Chat</h1>
 
     <!-- LOGIN -->
     <div id="login">
@@ -79,11 +76,9 @@
 
     function initChat() {
       loadVoices();
-      loadDarkMode();
       speechSynthesis.onvoiceschanged = loadVoices;
       onChildAdded(chatRef, handleInbound);
       document.getElementById("chatForm").addEventListener("submit", handleSend);
-      document.getElementById("darkToggle").onclick = toggleDarkMode;
     }
 
     function loadVoices() {
@@ -92,16 +87,6 @@
       sel.innerHTML = voices
         .map((v,i) => `<option value="${i}">${v.name} (${v.lang})</option>`)
         .join("");
-    }
-
-    function loadDarkMode() {
-      const dark = localStorage.getItem("darkMode") === "true";
-      document.body.classList.toggle("dark", dark);
-    }
-
-    function toggleDarkMode() {
-      const isDark = document.body.classList.toggle("dark");
-      localStorage.setItem("darkMode", isDark);
     }
 
     function arrayBufferToBase64(buffer) {
@@ -180,4 +165,3 @@
   </script>
 </body>
 </html>
-
