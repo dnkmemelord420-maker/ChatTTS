@@ -5,9 +5,12 @@
   <title>TTS Encrypted Chat</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="dark">
   <div class="container">
-    <h1>TTS Encrypted Chat</h1>
+    <div class="top-bar">
+      <h1>TTS Encrypted Chat</h1>
+      <button id="darkToggle" title="Toggle Theme">🌙</button>
+    </div>
 
     <!-- LOGIN -->
     <div id="login">
@@ -23,7 +26,6 @@
           Voice
           <select id="voiceSelect"></select>
         </label>
-        <button id="darkToggle">Dark Mode</button>
       </div>
       <div id="chat"></div>
       <form id="chatForm">
@@ -178,4 +180,3 @@
   </script>
 </body>
 </html>
-
