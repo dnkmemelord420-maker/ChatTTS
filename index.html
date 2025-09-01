@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Encrypted Voice Chat Room</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; }
+    #chat { border: 1px solid #ccc; height: 300px; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
+    #chat p { margin: 5px 0; }
+    form { display: flex; gap: 5px; }
+    input { flex: 1; padding: 5px; }
+  </style>
+</head>
+<body>
+
+<h1>Encrypted Voice Chat Room</h1>
+<div id="chat"></div>
+
+<form id="chatForm">
+  <input id="username" type="text" placeholder="Your name" required maxlength="30" />
+  <input id="message" type="text" placeholder="Type a message…" required maxlength="200" />
+  <button type="submit">Send</button>
+</form>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+  import { getDatabase, ref, push, onChildAdded } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyANG_bgIZ0sdpenEZdLU6zqAUvLpk2RH8s",
+    authDomain: "chattts-574ab.firebaseapp.com",
+    databaseURL: "https://chattts-574ab-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "chattts-574ab",
+    storageBucket: "chattts-574ab.firebasestorage.app",
+    messagingSenderId: "848479057506",
+    appId: "1:848479057506:web:a2dd895d7a7991387d433b"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const chatRef = ref(db, "messages");
+
+  const CHAT_PASSPHRASE = "CHANGE_THIS_TO_A_SECRET";
+
+  function arrayBufferToBase64(buffer) {
+    return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  }
+
+  function base64ToArrayBuffer(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  async function deriveKey() {
+    const enc = new TextEncoder();
+    const baseKey = await crypto.subtle.importKey("raw", enc.encode(CHAT_PASSPHRASE), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey({
+      name: "PBKDF2",
+      salt: enc.encode("static-salt-123"),
+      iterations: 100000,
+      hash: "SHA-256"
+    }, baseKey, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  }
+
+  async function encrypt(text) {
+    const key = await deriveKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(text);
+    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+    return {
+      iv: arrayBufferToBase64(iv),
+      ct: arrayBufferToBase64(ciphertext)
+    };
+  }
+
+  async function decrypt(ivB64, ctB64) {
+    const key = await deriveKey();
+    const iv = base64ToArrayBuffer(ivB64);
+    const ct = base64ToArrayBuffer(ctB64);
+    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+    return new TextDecoder().decode(decrypted);
+  }
+
+  function speak(text) {
+    if (!("speechSynthesis" in window)) return;
+    const utter = new SpeechSynthesisUtterance(text);
+    speechSynthesis.speak(utter);
+  }
+
+  onChildAdded(chatRef, async (snapshot) => {
+    const { iv, ct, timestamp } = snapshot.val();
+    if (Date.now() - timestamp < 60000) {
+      try {
+        const text = await decrypt(iv, ct);
+        const p = document.createElement("p");
+        p.textContent = text;
+        document.getElementById("chat").appendChild(p);
+        document.getElementById("chat").scrollTop = document.getElementById("chat").scrollHeight;
+        speak(text);
+      } catch (err) {
+        console.warn("Decryption failed:", err);
+      }
+    }
+  });
+
+  document.getElementById("chatForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const user = document.getElementById("username").value.trim();
+    const msg = document.getElementById("message").value.trim();
+    if (!user || !msg) return;
+
+    const fullText = `${user}: ${msg}`;
+    const { iv, ct } = await encrypt(fullText);
+    await push(chatRef, { iv, ct, timestamp: Date.now() });
+    document.getElementById("message").value = "";
+  });
+</script>
+
+</body>
+</html>
