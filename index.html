@@ -23,6 +23,7 @@
           Voice
           <select id="voiceSelect"></select>
         </label>
+        <button id="darkToggle">Toggle Dark Mode</button>
       </div>
       <div id="chat"></div>
       <form id="chatForm">
@@ -35,7 +36,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
-    import { getDatabase, ref, push, onChildAdded } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
+    import { getDatabase, ref, push, onChildAdded, get } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyANG_bgIZ0sdpenEZdLU6zqAUvLpk2RH8s",
@@ -78,9 +79,27 @@
       loadVoices();
       loadDarkMode();
       speechSynthesis.onvoiceschanged = loadVoices;
+      ensureDatabaseInitialized();
       onChildAdded(chatRef, handleInbound);
       document.getElementById("chatForm").addEventListener("submit", handleSend);
       document.getElementById("darkToggle").onclick = toggleDarkMode;
+    }
+
+    async function ensureDatabaseInitialized() {
+      try {
+        const snapshot = await get(chatRef);
+        if (!snapshot.exists()) {
+          const dummy = await encrypt("System: Chat initialized");
+          await push(chatRef, {
+            iv: dummy.iv,
+            ct: dummy.ct,
+            voiceIndex: 0,
+            timestamp: Date.now()
+          });
+        }
+      } catch (err) {
+        console.error("Database init failed:", err);
+      }
     }
 
     function loadVoices() {
@@ -177,4 +196,3 @@
   </script>
 </body>
 </html>
-
