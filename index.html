@@ -35,7 +35,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
-    import { getDatabase, ref, push, onChildAdded } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
+    import { getDatabase, ref, push, onChildAdded, remove } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyANG_bgIZ0sdpenEZdLU6zqAUvLpk2RH8s",
@@ -80,7 +80,7 @@
       speechSynthesis.onvoiceschanged = loadVoices;
       onChildAdded(chatRef, handleInbound);
       document.getElementById("chatForm").addEventListener("submit", handleSend);
-      document.getElementById("darkToggle").onclick = toggleDarkMode;
+      document.getElementById("darkToggle")?.addEventListener("click", toggleDarkMode);
     }
 
     function loadVoices() {
@@ -154,7 +154,15 @@
 
     async function handleInbound(snap) {
       const { iv, ct, voiceIndex, timestamp } = snap.val();
-      if (Date.now() - timestamp > 60000) return;
+      const age = Date.now() - timestamp;
+      const TEN_MINUTES = 10 * 60 * 1000;
+
+      if (age > TEN_MINUTES) {
+        // Delete expired message from DB
+        await remove(snap.ref);
+        return;
+      }
+
       try {
         const fullText = await decrypt(iv, ct);
         const splitAt  = fullText.indexOf(": ");
