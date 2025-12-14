@@ -27,9 +27,14 @@
       <div id="chat"></div>
       <form id="chatForm">
         <input id="username" type="text" placeholder="Your name" required maxlength="30" />
-        <input id="message" type="text" placeholder="Type a message…" maxlength="200" /> <br> <br>
-        <input id="imageLink" type="url" placeholder="Paste image URL…" />
+        <input id="message" type="text" placeholder="Type a message…" required maxlength="200" />
         <button type="submit">Send</button>
+      </form>
+
+      <!-- IMAGE LINK FORM -->
+      <form id="imageForm">
+        <input id="imageLink" type="url" placeholder="Paste image link…" required />
+        <button type="submit">Send Image</button>
       </form>
     </div>
   </div>
@@ -81,7 +86,8 @@
       speechSynthesis.onvoiceschanged = loadVoices;
       onChildAdded(chatRef, handleInbound);
       document.getElementById("chatForm").addEventListener("submit", handleSend);
-      document.getElementById("darkToggle").onclick = toggleDarkMode;
+      document.getElementById("imageForm").addEventListener("submit", handleImageSend);
+      document.getElementById("darkToggle")?.addEventListener("click", toggleDarkMode);
     }
 
     function loadVoices() {
@@ -145,65 +151,51 @@
       e.preventDefault();
       const user       = document.getElementById("username").value.trim();
       const msg        = document.getElementById("message").value.trim();
-      const imgLink    = document.getElementById("imageLink").value.trim();
       const voiceIndex = document.getElementById("voiceSelect").value;
-      if (!user || (!msg && !imgLink)) return;
-
-      let fullText = `${user}: ${msg}`;
-      if (imgLink) fullText += ` [img:${imgLink}]`;
-
+      if (!user || !msg) return;
+      const fullText = `${user}: ${msg}`;
       const { iv, ct } = await encrypt(fullText);
-      await push(chatRef, { iv, ct, voiceIndex, timestamp: Date.now() });
-
+      await push(chatRef, { iv, ct, voiceIndex, timestamp: Date.now(), type:"text" });
       document.getElementById("message").value = "";
+    }
+
+    async function handleImageSend(e) {
+      e.preventDefault();
+      const user = document.getElementById("username").value.trim();
+      const link = document.getElementById("imageLink").value.trim();
+      if (!user || !link) return;
+      const fullText = `${user}: ${link}`;
+      const { iv, ct } = await encrypt(fullText);
+      await push(chatRef, { iv, ct, voiceIndex: -1, timestamp: Date.now(), type:"image" });
       document.getElementById("imageLink").value = "";
     }
 
     async function handleInbound(snap) {
-      const { iv, ct, voiceIndex, timestamp } = snap.val();
+      const { iv, ct, voiceIndex, timestamp, type } = snap.val();
       if (Date.now() - timestamp > 60000) return;
       try {
         const fullText = await decrypt(iv, ct);
         const splitAt  = fullText.indexOf(": ");
         const display  = fullText;
+        const spoken   = splitAt > -1 ? fullText.slice(splitAt + 2) : fullText;
 
-        // spoken text should skip image markers
-        let spoken = splitAt > -1 ? fullText.slice(splitAt + 2) : fullText;
-        spoken = spoken.replace(/
-
-\[img:[^\]
-
-]+\]
-
-/g, "").trim();
-
+        const chatDiv = document.getElementById("chat");
         const p = document.createElement("p");
         p.classList.add("message");
+        p.textContent = display;
+        chatDiv.appendChild(p);
 
-        // Check for image marker
-        const imgMarker = display.indexOf("[img:");
-        if (imgMarker > -1) {
-          const endMarker = display.indexOf("]", imgMarker);
-          const textPart  = display.slice(0, imgMarker).trim();
-          const urlPart   = endMarker > -1
-            ? display.slice(imgMarker + 5, endMarker).trim()
-            : display.slice(imgMarker + 5).trim();
-
-          p.textContent = textPart;
+        if (type === "image") {
           const img = document.createElement("img");
-          img.src = urlPart;
-          img.alt = "shared image";
+          img.src = spoken;
+          img.alt = "Shared image";
           img.style.maxWidth = "200px";
-          img.style.display = "block";
-          p.appendChild(img);
-        } else {
-          p.textContent = display;
+          chatDiv.appendChild(img);
         }
 
-        document.getElementById("chat").appendChild(p);
-        document.getElementById("chat").scrollTop = document.getElementById("chat").scrollHeight;
+        chatDiv.scrollTop = chatDiv.scrollHeight;
 
-        if (spoken) {
+        if (type !== "image") {
           const utter = new SpeechSynthesisUtterance(spoken);
           utter.voice = voices[voiceIndex] || null;
           speechSynthesis.speak(utter);
@@ -215,4 +207,3 @@
   </script>
 </body>
 </html>
-
