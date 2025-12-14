@@ -27,7 +27,8 @@
       <div id="chat"></div>
       <form id="chatForm">
         <input id="username" type="text" placeholder="Your name" required maxlength="30" />
-        <input id="message" type="text" placeholder="Type a message…" required maxlength="200" />
+        <input id="message" type="text" placeholder="Type a message…" maxlength="200" /> <br><br>
+        <input id="imageLink" type="url" placeholder="Paste image URL…" />
         <button type="submit">Send</button>
       </form>
     </div>
@@ -80,7 +81,6 @@
       speechSynthesis.onvoiceschanged = loadVoices;
       onChildAdded(chatRef, handleInbound);
       document.getElementById("chatForm").addEventListener("submit", handleSend);
-      document.getElementById("darkToggle").onclick = toggleDarkMode;
     }
 
     function loadVoices() {
@@ -94,11 +94,6 @@
     function loadDarkMode() {
       const dark = localStorage.getItem("darkMode") === "true";
       document.body.classList.toggle("dark", dark);
-    }
-
-    function toggleDarkMode() {
-      const isDark = document.body.classList.toggle("dark");
-      localStorage.setItem("darkMode", isDark);
     }
 
     function arrayBufferToBase64(buffer) {
@@ -144,12 +139,18 @@
       e.preventDefault();
       const user       = document.getElementById("username").value.trim();
       const msg        = document.getElementById("message").value.trim();
+      const imgLink    = document.getElementById("imageLink").value.trim();
       const voiceIndex = document.getElementById("voiceSelect").value;
-      if (!user || !msg) return;
-      const fullText = `${user}: ${msg}`;
+      if (!user || (!msg && !imgLink)) return;
+
+      let fullText = `${user}: ${msg}`;
+      if (imgLink) fullText += ` [img:${imgLink}]`;
+
       const { iv, ct } = await encrypt(fullText);
       await push(chatRef, { iv, ct, voiceIndex, timestamp: Date.now() });
+
       document.getElementById("message").value = "";
+      document.getElementById("imageLink").value = "";
     }
 
     async function handleInbound(snap) {
@@ -159,17 +160,45 @@
         const fullText = await decrypt(iv, ct);
         const splitAt  = fullText.indexOf(": ");
         const display  = fullText;
-        const spoken   = splitAt > -1 ? fullText.slice(splitAt + 2) : fullText;
+
+        // spoken text should skip image markers
+        let spoken = splitAt > -1 ? fullText.slice(splitAt + 2) : fullText;
+        spoken = spoken.replace(/
+
+\[img:[^\]
+
+]+\]
+
+/g, "").trim();
 
         const p = document.createElement("p");
         p.classList.add("message");
-        p.textContent = display;
+
+        // Check for image marker
+        const imgMarker = display.indexOf("[img:");
+        if (imgMarker > -1) {
+          const endMarker = display.indexOf("]", imgMarker);
+          const textPart  = display.slice(0, imgMarker).trim();
+          const urlPart   = display.slice(imgMarker + 5, endMarker).trim();
+          p.textContent = textPart;
+          const img = document.createElement("img");
+          img.src = urlPart;
+          img.alt = "shared image";
+          img.style.maxWidth = "200px";
+          img.style.display = "block";
+          p.appendChild(img);
+        } else {
+          p.textContent = display;
+        }
+
         document.getElementById("chat").appendChild(p);
         document.getElementById("chat").scrollTop = document.getElementById("chat").scrollHeight;
 
-        const utter = new SpeechSynthesisUtterance(spoken);
-        utter.voice = voices[voiceIndex] || null;
-        speechSynthesis.speak(utter);
+        if (spoken) {
+          const utter = new SpeechSynthesisUtterance(spoken);
+          utter.voice = voices[voiceIndex] || null;
+          speechSynthesis.speak(utter);
+        }
       } catch (err) {
         console.warn("Decrypt failed:", err);
       }
