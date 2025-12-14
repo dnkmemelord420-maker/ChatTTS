@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>TTS Encrypted Chat</title>
+  <title>TTS Encrypted Chat :)</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -30,7 +30,8 @@
         <input id="message" type="text" placeholder="Type a message…" required maxlength="200" />
         <button type="submit">Send</button>
       </form>
-
+      <br>
+      <br>
       <!-- IMAGE LINK FORM -->
       <form id="imageForm">
         <input id="imageLink" type="url" placeholder="Paste image link…" required />
@@ -176,30 +177,33 @@
       try {
         const fullText = await decrypt(iv, ct);
         const splitAt  = fullText.indexOf(": ");
-        const display  = fullText;
         const spoken   = splitAt > -1 ? fullText.slice(splitAt + 2) : fullText;
 
         const chatDiv = document.getElementById("chat");
-        const p = document.createElement("p");
-        p.classList.add("message");
-        p.textContent = display;
-        chatDiv.appendChild(p);
 
+        // If this is an image message, do NOT display the link text or read it out.
         if (type === "image") {
           const img = document.createElement("img");
           img.src = spoken;
           img.alt = "Shared image";
           img.style.maxWidth = "200px";
+          img.style.display = "block";
+          img.style.marginTop = "6px";
           chatDiv.appendChild(img);
+          chatDiv.scrollTop = chatDiv.scrollHeight;
+          return;
         }
 
+        // For non-image messages, display text and speak it.
+        const p = document.createElement("p");
+        p.classList.add("message");
+        p.textContent = fullText;
+        chatDiv.appendChild(p);
         chatDiv.scrollTop = chatDiv.scrollHeight;
 
-        if (type !== "image") {
-          const utter = new SpeechSynthesisUtterance(spoken);
-          utter.voice = voices[voiceIndex] || null;
-          speechSynthesis.speak(utter);
-        }
+        const utter = new SpeechSynthesisUtterance(spoken);
+        utter.voice = voices[voiceIndex] || null;
+        speechSynthesis.speak(utter);
       } catch (err) {
         console.warn("Decrypt failed:", err);
       }
