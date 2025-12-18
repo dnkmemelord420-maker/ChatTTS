@@ -5,14 +5,102 @@
   <title>TTS Encrypted Chat</title>
   <link rel="stylesheet" href="styles.css" />
   <style>
+    :root {
+      --panel-bg: #f3f4f7;
+      --panel-border: #d0d4db;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
     .hidden { display: none; }
-    .container { max-width: 700px; margin: 2rem auto; }
-    #chat { max-height: 50vh; overflow: auto; border: 1px solid #ccc; padding: 8px; border-radius: 6px; }
-    .message { margin: 6px 0; }
-    .error { color: #c00; }
-    #controls { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-    #controls label { display: flex; align-items: center; gap: 6px; }
-    #countdownDisplay { min-width: 140px; font-weight: 600; }
+    .container { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+
+    /* Login */
+    .error { color: #c00; margin: 6px 0; }
+
+    /* Settings */
+    #settingsToggle { margin-bottom: 8px; }
+    #settingsPanel {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 10px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 8px 12px;
+    }
+    #settingsPanel label { display: flex; align-items: center; gap: 6px; }
+    #countdownDisplay { font-weight: 600; align-self: center; }
+
+    /* Chat window (draggable + resizable) */
+    #chatWindow {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      width: 460px;
+      height: 380px;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      resize: both; /* user can resize */
+    }
+    #chatHeader {
+      padding: 8px 10px;
+      background: #fafafa;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: move; /* drag handle */
+      user-select: none;
+    }
+    #chatTitle { font-weight: 600; font-size: 14px; color: #333; }
+    #chat {
+      flex: 1;
+      overflow: auto;
+      padding: 10px;
+      /* no white outline: remove border entirely */
+      border: none;
+      background: #fff;
+    }
+    .message { margin: 6px 0; color: #222; }
+    #chatFooter {
+      padding: 10px;
+      background: #fafafa;
+      border-top: 1px solid #eee;
+    }
+    #chatForm, #imageForm {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      margin: 6px 0;
+    }
+    #username { grid-column: 1 / -1; }
+    input[type="text"], input[type="url"], input[type="password"] {
+      padding: 8px 10px;
+      border: 1px solid #dadde4;
+      border-radius: 6px;
+    }
+    button {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid #cfd6e2;
+      background: #eef2f7;
+      color: #111;
+      cursor: pointer;
+    }
+    button:hover { background: #e6ebf3; }
+    select, input[type="range"] {
+      padding: 6px;
+      border: 1px solid #dadde4;
+      border-radius: 6px;
+    }
+
+    /* Page header title spacing */
+    h1 { margin: 0 0 12px 0; font-size: 20px; }
   </style>
 </head>
 <body>
@@ -29,7 +117,8 @@
 
     <!-- CHAT UI -->
     <div id="chat-ui" class="hidden">
-      <div id="controls">
+      <button id="settingsToggle">Show Settings</button>
+      <div id="settingsPanel" class="hidden">
         <label>
           Voice
           <select id="voiceSelect"></select>
@@ -39,25 +128,31 @@
           <input id="volumeSlider" type="range" min="0" max="1" step="0.1" value="1" />
         </label>
         <button id="muteBtn">Mute</button>
-
-        <!-- Auto-delete toggle -->
         <button id="autoDeleteBtn">Start Auto-Delete</button>
         <span id="countdownDisplay"></span>
       </div>
 
-      <div id="chat"></div>
+      <!-- Draggable & resizable chat window -->
+      <div id="chatWindow">
+        <div id="chatHeader">
+          <div id="chatTitle">Room</div>
+          <div></div>
+        </div>
 
-      <form id="chatForm">
-        <input id="username" type="text" placeholder="Your name" required maxlength="30" />
-        <input id="message" type="text" placeholder="Type a message…" required maxlength="200" />
-        <button type="submit">Send</button>
-      </form>
-      <br>
-      <!-- IMAGE LINK FORM -->
-      <form id="imageForm">
-        <input id="imageLink" type="url" placeholder="Paste image link…" required />
-        <button type="submit">Send Image</button>
-      </form>
+        <div id="chat"></div>
+
+        <div id="chatFooter">
+          <form id="chatForm">
+            <input id="username" type="text" placeholder="Your name" required maxlength="30" />
+            <input id="message" type="text" placeholder="Type a message…" required maxlength="200" />
+            <button type="submit">Send</button>
+          </form>
+          <form id="imageForm">
+            <input id="imageLink" type="url" placeholder="Paste image link…" required />
+            <button type="submit">Send Image</button>
+          </form>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -66,7 +161,7 @@
     import { getDatabase, ref, push, onChildAdded, remove } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
 
-    // Firebase config (yours)
+    // Firebase config
     const firebaseConfig = {
       apiKey: "AIzaSyANG_bgIZ0sdpenEZdLU6zqAUvLpk2RH8s",
       authDomain: "chattts-574ab.firebaseapp.com",
@@ -77,18 +172,15 @@
       appId: "1:848479057506:web:a2dd895d7a7991387d433b"
     };
 
-    // Existing client-side password + crypto
     const LOGIN_PASSWORD_HASH = "b9ff6bf20e4c06505ffc06e1f4059838936938cc83f0d2d02adcdae945d8f984";
     const CHAT_PASSPHRASE     = "ad3awd51affwrqw";
     const SALT                = "static-salt-123";
 
-    // Init Firebase
     const app     = initializeApp(firebaseConfig);
     const db      = getDatabase(app);
     const auth    = getAuth(app);
     const chatRef = ref(db, "messages");
 
-    // Anonymous auth (invisible to users)
     const sessionMsg = document.getElementById("sessionMsg");
     let authed = false;
     signInAnonymously(auth)
@@ -96,7 +188,6 @@
       .catch(() => { sessionMsg.textContent = "Secure session failed to initialize. Reload and try again."; });
     onAuthStateChanged(auth, (user) => { authed = !!user; });
 
-    // Password gate
     async function hashSHA256(str) {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -114,6 +205,14 @@
         document.getElementById("loginMsg").textContent = "Wrong password.";
       }
     };
+
+    // Settings toggle
+    const settingsToggle = document.getElementById("settingsToggle");
+    const settingsPanel = document.getElementById("settingsPanel");
+    settingsToggle.addEventListener("click", () => {
+      settingsPanel.classList.toggle("hidden");
+      settingsToggle.textContent = settingsPanel.classList.contains("hidden") ? "Show Settings" : "Hide Settings";
+    });
 
     // Voices + TTS controls
     let voices = [];
@@ -173,9 +272,8 @@
       onChildAdded(chatRef, handleInbound);
       document.getElementById("chatForm").addEventListener("submit", handleSend);
       document.getElementById("imageForm").addEventListener("submit", handleImageSend);
-
-      // Auto-delete toggle setup
       setupAutoDelete();
+      setupDrag();
     }
 
     async function handleSend(e) {
@@ -203,7 +301,7 @@
     }
 
     async function handleInbound(snap) {
-      const { iv, ct, voiceIndex, timestamp, type } = snap.val();
+      const { iv, ct, voiceIndex, type } = snap.val();
       if (!iv || !ct) return;
       try {
         const fullText = await decrypt(iv, ct);
@@ -230,7 +328,6 @@
         chatDiv.appendChild(p);
         chatDiv.scrollTop = chatDiv.scrollHeight;
 
-        // Speak with volume/mute control
         const utter = new SpeechSynthesisUtterance(spoken);
         utter.voice = voices[voiceIndex] || null;
         utter.volume = muted ? 0 : volume;
@@ -262,21 +359,14 @@
     }
 
     function startCountdownLoop(display) {
-      // reset countdown and start interval
       countdown = 60;
       display.textContent = `Deleting in ${countdown}s`;
       clearInterval(countdownInterval);
       countdownInterval = setInterval(async () => {
         countdown--;
         display.textContent = `Deleting in ${countdown}s`;
-
         if (countdown <= 0) {
-          try {
-            await remove(chatRef); // delete all messages
-          } catch (e) {
-            console.warn("Delete failed:", e);
-          }
-          // reset countdown for next cycle
+          try { await remove(chatRef); } catch (e) { console.warn("Delete failed:", e); }
           countdown = 60;
           display.textContent = `Deleting in ${countdown}s`;
         }
@@ -287,6 +377,43 @@
       clearInterval(countdownInterval);
       countdownInterval = null;
       display.textContent = "";
+    }
+
+    // Dragging for chat window using header as handle
+    function setupDrag() {
+      const win = document.getElementById("chatWindow");
+      const header = document.getElementById("chatHeader");
+      let isDragging = false;
+      let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+      // Ensure starting position is fixed for dragging
+      const rect = win.getBoundingClientRect();
+      win.style.left = rect.left + "px";
+      win.style.top  = rect.top  + "px";
+
+      header.addEventListener("mousedown", (e) => {
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startLeft = parseFloat(win.style.left || 0);
+        startTop  = parseFloat(win.style.top  || 0);
+        document.addEventListener("mousemove", onDragMove);
+        document.addEventListener("mouseup", onDragEnd);
+      });
+
+      function onDragMove(e) {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        win.style.left = startLeft + dx + "px";
+        win.style.top  = startTop  + dy + "px";
+      }
+
+      function onDragEnd() {
+        isDragging = false;
+        document.removeEventListener("mousemove", onDragMove);
+        document.removeEventListener("mouseup", onDragEnd);
+      }
     }
 
     // Clear speech queue when leaving page
