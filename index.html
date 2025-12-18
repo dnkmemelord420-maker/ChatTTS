@@ -6,11 +6,12 @@
   <link rel="stylesheet" href="styles.css" />
   <style>
     .hidden { display: none; }
-    body.dark { background: #111; color: #eee; }
     .container { max-width: 700px; margin: 2rem auto; }
     #chat { max-height: 50vh; overflow: auto; border: 1px solid #ccc; padding: 8px; border-radius: 6px; }
     .message { margin: 6px 0; }
     .error { color: #c00; }
+    #controls { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+    #controls label { display: flex; align-items: center; gap: 6px; }
   </style>
 </head>
 <body>
@@ -28,11 +29,15 @@
     <!-- CHAT UI -->
     <div id="chat-ui" class="hidden">
       <div id="controls">
-        <button id="darkToggle">Toggle dark mode</button>
-        <label style="margin-left: 8px;">
+        <label>
           Voice
           <select id="voiceSelect"></select>
         </label>
+        <label>
+          Volume
+          <input id="volumeSlider" type="range" min="0" max="1" step="0.1" value="1" />
+        </label>
+        <button id="muteBtn">Mute</button>
       </div>
       <div id="chat"></div>
       <form id="chatForm">
@@ -54,6 +59,7 @@
     import { getDatabase, ref, push, onChildAdded } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
 
+    // Firebase config (yours)
     const firebaseConfig = {
       apiKey: "AIzaSyANG_bgIZ0sdpenEZdLU6zqAUvLpk2RH8s",
       authDomain: "chattts-574ab.firebaseapp.com",
@@ -64,33 +70,26 @@
       appId: "1:848479057506:web:a2dd895d7a7991387d433b"
     };
 
+    // Existing client-side password + crypto
     const LOGIN_PASSWORD_HASH = "b9ff6bf20e4c06505ffc06e1f4059838936938cc83f0d2d02adcdae945d8f984";
     const CHAT_PASSPHRASE     = "ad3awd51affwrqw";
     const SALT                = "static-salt-123";
 
+    // Init Firebase
     const app     = initializeApp(firebaseConfig);
     const db      = getDatabase(app);
     const auth    = getAuth(app);
     const chatRef = ref(db, "messages");
-    let voices    = [];
 
-    // Sign in anonymously to satisfy database rules (no user accounts needed)
+    // Anonymous auth (invisible to users)
     const sessionMsg = document.getElementById("sessionMsg");
-    signInAnonymously(auth).catch(() => {
-      sessionMsg.textContent = "Secure session failed to initialize. Reload and try again.";
-    });
-
-    // Optional: prevent chat init until anonymous auth is ready
     let authed = false;
-    onAuthStateChanged(auth, (user) => {
-      authed = !!user;
-      if (!authed) {
-        sessionMsg.textContent = "Waiting for secure session…";
-      } else {
-        sessionMsg.textContent = "";
-      }
-    });
+    signInAnonymously(auth)
+      .then(() => { authed = true; sessionMsg.textContent = ""; })
+      .catch(() => { sessionMsg.textContent = "Secure session failed to initialize. Reload and try again."; });
+    onAuthStateChanged(auth, (user) => { authed = !!user; });
 
+    // Password gate
     async function hashSHA256(str) {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -109,34 +108,25 @@
       }
     };
 
-    function initChat() {
-      loadVoices();
-      loadDarkMode();
-      speechSynthesis.onvoiceschanged = loadVoices;
-      onChildAdded(chatRef, handleInbound);
-      document.getElementById("chatForm").addEventListener("submit", handleSend);
-      document.getElementById("imageForm").addEventListener("submit", handleImageSend);
-      document.getElementById("darkToggle")?.addEventListener("click", toggleDarkMode);
-    }
+    // Voices + TTS controls
+    let voices = [];
+    let volume = 1.0;
+    let muted  = false;
 
     function loadVoices() {
       voices = speechSynthesis.getVoices();
       const sel = document.getElementById("voiceSelect");
-      sel.innerHTML = voices
-        .map((v,i) => `<option value="${i}">${v.name} (${v.lang})</option>`)
-        .join("");
+      sel.innerHTML = voices.map((v,i) => `<option value="${i}">${v.name} (${v.lang})</option>`).join("");
     }
+    document.getElementById("volumeSlider").addEventListener("input", (e) => {
+      volume = parseFloat(e.target.value);
+    });
+    document.getElementById("muteBtn").addEventListener("click", () => {
+      muted = !muted;
+      document.getElementById("muteBtn").textContent = muted ? "Unmute" : "Mute";
+    });
 
-    function loadDarkMode() {
-      const dark = localStorage.getItem("darkMode") === "true";
-      document.body.classList.toggle("dark", dark);
-    }
-
-    function toggleDarkMode() {
-      const isDark = document.body.classList.toggle("dark");
-      localStorage.setItem("darkMode", isDark);
-    }
-
+    // Crypto helpers
     function arrayBufferToBase64(buffer) {
       return btoa(String.fromCharCode(...new Uint8Array(buffer)));
     }
@@ -147,9 +137,7 @@
     }
     async function deriveKey() {
       const enc     = new TextEncoder();
-      const baseKey = await crypto.subtle.importKey(
-        "raw", enc.encode(CHAT_PASSPHRASE), "PBKDF2", false, ["deriveKey"]
-      );
+      const baseKey = await crypto.subtle.importKey("raw", enc.encode(CHAT_PASSPHRASE), "PBKDF2", false, ["deriveKey"]);
       return crypto.subtle.deriveKey(
         { name: "PBKDF2", salt: enc.encode(SALT), iterations: 100000, hash: "SHA-256" },
         baseKey,
@@ -161,19 +149,23 @@
     async function encrypt(text) {
       const key = await deriveKey();
       const iv  = crypto.getRandomValues(new Uint8Array(12));
-      const ct  = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv }, key, new TextEncoder().encode(text)
-      );
+      const ct  = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(text));
       return { iv: arrayBufferToBase64(iv), ct: arrayBufferToBase64(ct) };
     }
     async function decrypt(ivB64, ctB64) {
       const key = await deriveKey();
       const iv  = base64ToArrayBuffer(ivB64);
       const ct  = base64ToArrayBuffer(ctB64);
-      const plain = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv }, key, ct
-      );
+      const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
       return new TextDecoder().decode(plain);
+    }
+
+    function initChat() {
+      loadVoices();
+      speechSynthesis.onvoiceschanged = loadVoices;
+      onChildAdded(chatRef, handleInbound);
+      document.getElementById("chatForm").addEventListener("submit", handleSend);
+      document.getElementById("imageForm").addEventListener("submit", handleImageSend);
     }
 
     async function handleSend(e) {
@@ -184,7 +176,8 @@
       if (!user || !msg) return;
       const fullText = `${user}: ${msg}`;
       const { iv, ct } = await encrypt(fullText);
-      await push(chatRef, { iv, ct, voiceIndex, timestamp: Date.now(), type:"text" });
+      const uid = auth.currentUser?.uid || "unknown";
+      await push(chatRef, { iv, ct, voiceIndex, timestamp: Date.now(), type:"text", uid });
       document.getElementById("message").value = "";
     }
 
@@ -193,15 +186,15 @@
       const user = document.getElementById("username").value.trim();
       const link = document.getElementById("imageLink").value.trim();
       if (!user || !link) return;
-      const fullText = `${user}: ${link}`;
-      const { iv, ct } = await encrypt(fullText);
-      await push(chatRef, { iv, ct, voiceIndex: -1, timestamp: Date.now(), type:"image" });
+      const { iv, ct } = await encrypt(`${user}: ${link}`);
+      const uid = auth.currentUser?.uid || "unknown";
+      await push(chatRef, { iv, ct, voiceIndex: -1, timestamp: Date.now(), type:"image", uid });
       document.getElementById("imageLink").value = "";
     }
 
     async function handleInbound(snap) {
       const { iv, ct, voiceIndex, timestamp, type } = snap.val();
-      if (Date.now() - timestamp > 60000) return;
+      if (!iv || !ct) return;
       try {
         const fullText = await decrypt(iv, ct);
         const splitAt  = fullText.indexOf(": ");
@@ -227,15 +220,17 @@
         chatDiv.appendChild(p);
         chatDiv.scrollTop = chatDiv.scrollHeight;
 
+        // Speak with volume/mute control
         const utter = new SpeechSynthesisUtterance(spoken);
         utter.voice = voices[voiceIndex] || null;
+        utter.volume = muted ? 0 : volume;
         speechSynthesis.speak(utter);
       } catch (err) {
         console.warn("Decrypt failed:", err);
       }
     }
 
-    // Helpful: clear speech queue when leaving page
+    // Clear speech queue when leaving page
     window.addEventListener("beforeunload", () => speechSynthesis.cancel());
   </script>
 </body>
