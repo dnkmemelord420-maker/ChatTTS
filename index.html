@@ -10,8 +10,9 @@
     #chat { max-height: 50vh; overflow: auto; border: 1px solid #ccc; padding: 8px; border-radius: 6px; }
     .message { margin: 6px 0; }
     .error { color: #c00; }
-    #controls { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+    #controls { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
     #controls label { display: flex; align-items: center; gap: 6px; }
+    #countdownDisplay { min-width: 140px; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -38,8 +39,14 @@
           <input id="volumeSlider" type="range" min="0" max="1" step="0.1" value="1" />
         </label>
         <button id="muteBtn">Mute</button>
+
+        <!-- Auto-delete toggle -->
+        <button id="autoDeleteBtn">Start Auto-Delete</button>
+        <span id="countdownDisplay"></span>
       </div>
+
       <div id="chat"></div>
+
       <form id="chatForm">
         <input id="username" type="text" placeholder="Your name" required maxlength="30" />
         <input id="message" type="text" placeholder="Type a message…" required maxlength="200" />
@@ -56,7 +63,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
-    import { getDatabase, ref, push, onChildAdded } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
+    import { getDatabase, ref, push, onChildAdded, remove } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-database.js";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
 
     // Firebase config (yours)
@@ -166,6 +173,9 @@
       onChildAdded(chatRef, handleInbound);
       document.getElementById("chatForm").addEventListener("submit", handleSend);
       document.getElementById("imageForm").addEventListener("submit", handleImageSend);
+
+      // Auto-delete toggle setup
+      setupAutoDelete();
     }
 
     async function handleSend(e) {
@@ -228,6 +238,55 @@
       } catch (err) {
         console.warn("Decrypt failed:", err);
       }
+    }
+
+    // Auto-delete toggle (60s countdown -> delete all messages -> repeat until stopped)
+    let autoDeleteActive = false;
+    let countdownInterval = null;
+    let countdown = 60;
+
+    function setupAutoDelete() {
+      const btn = document.getElementById("autoDeleteBtn");
+      const display = document.getElementById("countdownDisplay");
+
+      btn.addEventListener("click", () => {
+        autoDeleteActive = !autoDeleteActive;
+        if (autoDeleteActive) {
+          btn.textContent = "Stop Auto-Delete";
+          startCountdownLoop(display);
+        } else {
+          btn.textContent = "Start Auto-Delete";
+          stopCountdownLoop(display);
+        }
+      });
+    }
+
+    function startCountdownLoop(display) {
+      // reset countdown and start interval
+      countdown = 60;
+      display.textContent = `Deleting in ${countdown}s`;
+      clearInterval(countdownInterval);
+      countdownInterval = setInterval(async () => {
+        countdown--;
+        display.textContent = `Deleting in ${countdown}s`;
+
+        if (countdown <= 0) {
+          try {
+            await remove(chatRef); // delete all messages
+          } catch (e) {
+            console.warn("Delete failed:", e);
+          }
+          // reset countdown for next cycle
+          countdown = 60;
+          display.textContent = `Deleting in ${countdown}s`;
+        }
+      }, 1000);
+    }
+
+    function stopCountdownLoop(display) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+      display.textContent = "";
     }
 
     // Clear speech queue when leaving page
